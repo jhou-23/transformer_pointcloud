@@ -1,4 +1,3 @@
-#TODO: restructure code so that stuff is separated (follow tutorial) see line 36 and consider the modulelist
 import torch.nn as nn
 import torch
 import numpy as np
@@ -35,32 +34,6 @@ class MultiHeadAttention(nn.Module):
     def forward(self, x):
         x = torch.cat([h(x) for h in self.mha], dim=-1)
         x = self.wo(x)
-        return x
-
-class SA_Layer(nn.Module):
-    def __init__(self, channels):
-        super(SA_Layer, self).__init__()
-        self.q_conv = nn.Conv1d(channels, channels // 4, 1, bias=False)
-        self.k_conv = nn.Conv1d(channels, channels // 4, 1, bias=False)
-        # self.q_conv.weight = self.k_conv.weight 
-        self.v_conv = nn.Conv1d(channels, channels, 1)
-        self.trans_conv = nn.Conv1d(channels, channels, 1)
-        self.after_norm = nn.BatchNorm1d(channels)
-        self.act = nn.ReLU()
-        self.softmax = nn.Softmax(dim=-1)
-
-    def forward(self, x):
-        x_q = self.q_conv(x).permute(0, 2, 1) # b, n, c 
-        x_k = self.k_conv(x)# b, c, n        
-        x_v = self.v_conv(x)
-        energy = torch.bmm(x_q, x_k) # b, n, n 
-        energy = energy / (energy.size(-1) ** 0.5)
-        attention = self.softmax(energy)
-        # attention = attention / (1e-9 + attention.sum(dim=1, keepdims=True))
-        x_r = torch.bmm(x_v, attention) # b, c, n 
-        # x_r = self.act(self.after_norm(self.trans_conv(x - x_r)))
-        x_r = self.act(self.after_norm(self.trans_conv(x_r)))
-        x = x + x_r
         return x
 
 
@@ -147,6 +120,34 @@ class PointTransformer2(nn.Module):
         x = self.fc3(self.fc2(x))
         return x
 
+
+class SA_Layer(nn.Module):
+    def __init__(self, channels):
+        super(SA_Layer, self).__init__()
+        self.q_conv = nn.Conv1d(channels, channels // 4, 1, bias=False)
+        self.k_conv = nn.Conv1d(channels, channels // 4, 1, bias=False)
+        # self.q_conv.weight = self.k_conv.weight 
+        self.v_conv = nn.Conv1d(channels, channels, 1)
+        self.trans_conv = nn.Conv1d(channels, channels, 1)
+        self.after_norm = nn.BatchNorm1d(channels)
+        self.act = nn.ReLU()
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, x):
+        x_q = self.q_conv(x).permute(0, 2, 1) # b, n, c 
+        x_k = self.k_conv(x)# b, c, n        
+        x_v = self.v_conv(x)
+        energy = torch.bmm(x_q, x_k) # b, n, n 
+        energy = energy / (energy.size(-1) ** 0.5)
+        attention = self.softmax(energy)
+        # attention = attention / (1e-9 + attention.sum(dim=1, keepdims=True))
+        x_r = torch.bmm(x_v, attention) # b, c, n 
+        # x_r = self.act(self.after_norm(self.trans_conv(x - x_r)))
+        x_r = self.act(self.after_norm(self.trans_conv(x_r)))
+        x = x + x_r
+        return x
+
+
 class PCT(nn.Module):
     def __init__(self, output_channels=40):
         super(PCT, self).__init__()
@@ -162,11 +163,16 @@ class PCT(nn.Module):
         self.sa3 = SA_Layer(128)
         self.sa4 = SA_Layer(128)
 
-        self.conv_fuse = nn.Sequential(nn.Conv1d(512, 1024, kernel_size=1, bias=False),
-                                   nn.BatchNorm1d(1024),
-                                   nn.LeakyReLU(negative_slope=0.2))
+        # self.conv_fuse = nn.Sequential(nn.Conv1d(512, 1024, kernel_size=1, bias=False),
+        #                            nn.BatchNorm1d(1024),
+        #                            nn.LeakyReLU(negative_slope=0.2))
 
-        self.linear1 = nn.Linear(1024, 512, bias=False)
+        # self.conv_fuse = nn.Sequential(nn.Conv1d(128, 1024, kernel_size=1, bias=False),
+        #                            nn.BatchNorm1d(1024),
+        #                            nn.LeakyReLU(negative_slope=0.2))
+
+        # self.linear1 = nn.Linear(1024, 512, bias=False)
+        self.linear1 = nn.Linear(128, 512, bias=False)
         self.bn6 = nn.BatchNorm1d(512)
         self.dp1 = nn.Dropout(p=0.5)
         self.linear2 = nn.Linear(512, 256)
@@ -187,9 +193,9 @@ class PCT(nn.Module):
         x3 = self.sa3(x2)
         x4 = self.sa4(x3)
         
-        x = torch.cat((x1, x2, x3, x4), dim=1)
+        # x = torch.cat((x1, x2, x3, x4), dim=1)
 
-        x = self.conv_fuse(x)
+        # x = self.conv_fuse(x)
         # x = F.adaptive_max_pool1d(x, 1).view(batch_size, -1)
         x = torch.max(x, 2)[0]
         x = x.view(batch_size, -1)

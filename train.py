@@ -78,7 +78,7 @@ print(len(train_dataset), len(test_dataset))
 # print('classes', num_classes)
 
 try:
-    os.makedirs(opt.outf)
+    os.makedirs("models/"+opt.outf)
 except OSError:
     pass
 
