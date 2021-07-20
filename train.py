@@ -106,10 +106,10 @@ classifier.cuda()
 
 num_batch = len(train_dataset) / opt.batchSize
 
-fadksfadfad = open("log-%s.txt" %opt.logname, 'w')
+fadksfadfad = open("logs/log-%s.txt" %opt.logname, 'w')
 fadksfadfad.close()
 
-with open("log-%s.txt" %opt.logname, 'a') as f:
+with open("logs/log-%s.txt" %opt.logname, 'a') as f:
     f.write(str(opt))
     f.write('\n')
     f.write(str(classifier))
@@ -135,7 +135,7 @@ for epoch in range(opt.nepoch):
         correct = pred_choice.eq(target.data).cpu().sum()
         print('[%d: %d/%d] train loss: %f accuracy: %f' % (epoch, i, num_batch, loss.item(), correct.item() / float(opt.batchSize)))
         
-        with open("log-%s.txt" %opt.logname, 'a') as f:
+        with open("logs/log-%s.txt" %opt.logname, 'a') as f:
             f.write('[%d: %d/%d] train loss: %f accuracy: %f\n' % (epoch, i, num_batch, loss.item(), correct.item() / float(opt.batchSize)))
 
         epoch_train_loss += loss.item()
@@ -176,20 +176,20 @@ for epoch in range(opt.nepoch):
     print("-" * 40)
     print("EPOCH %d stats" % epoch)
     print('[%d] %s loss: %f accuracy: %f' % (epoch, 'test', epoch_test_loss, epoch_test_accuracy))
-    with open("log-%s.txt" %opt.logname, 'a') as f:
+    with open("logs/log-%s.txt" %opt.logname, 'a') as f:
         f.write("-" * 40 + "\n")
         f.write('[%d] %s loss: %f accuracy: %f\n' % (epoch, 'test', epoch_test_loss, epoch_test_accuracy))
     
     epoch_train_loss = epoch_train_loss / counter
     epoch_train_accuracy = epoch_train_accuracy / (counter * float(opt.batchSize))
     print('[%d] %s loss: %f accuracy: %f' % (epoch, 'train', epoch_train_loss, epoch_train_accuracy))
-    with open("log-%s.txt" %opt.logname, 'a') as f:
+    with open("logs/log-%s.txt" %opt.logname, 'a') as f:
         f.write('[%d] %s loss: %f accuracy: %f\n' % (epoch, 'train', epoch_train_loss, epoch_train_accuracy))
         f.write("-" * 40 + "\n")
     print("-" * 40)
 
     scheduler.step()
-    torch.save(classifier.state_dict(), '%s/cls_model_%d.pth' % (opt.outf, epoch))
+    torch.save(classifier.state_dict(), 'models/%s/cls_model_%d.pth' % (opt.outf, epoch))
 
 total_correct = 0
 total_testset = 0
@@ -205,5 +205,5 @@ for i,data in tqdm(enumerate(test_loader, 0)):
     total_testset += points.size()[0]
 
 print("final accuracy {}".format(total_correct / float(total_testset)))
-with open("log-%s.txt" %opt.logname, 'a') as f:
+with open("logs/log-%s.txt" %opt.logname, 'a') as f:
     f.write("final accuracy {}\n".format(total_correct / float(total_testset)))
