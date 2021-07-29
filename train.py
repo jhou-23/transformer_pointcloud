@@ -1,5 +1,6 @@
 from __future__ import print_function
 import argparse
+import sys
 import os
 import random
 import torch
@@ -11,113 +12,104 @@ import torch.nn.functional as F
 from tqdm import tqdm
 from dataset import ShapeNetDataset, ModelNet40
 from model import PointTransformer, PCT, PointTransformer2
+import yaml
+from pprint import pprint
 
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    '--batchSize', type=int, default=32, help='input batch size')
-parser.add_argument(
-    '--num_points', type=int, default=1024, help='input batch size')
-parser.add_argument(
-    '--workers', type=int, help='number of data loading workers', default=8)
-parser.add_argument(
-    '--nepoch', type=int, default=250, help='number of epochs to train for')
-parser.add_argument('--outf', type=str, default='cls', help='output folder')
-parser.add_argument('--model', type=str, default='', help='model path')
-parser.add_argument('--model_type', type=str, default='PointTransformer', help="which model")
-parser.add_argument('--dataset', type=str, required=True, help="dataset path")
-parser.add_argument('--dataset_type', type=str, default='shapenet', help="dataset type shapenet|modelnet40")
-parser.add_argument('--optimizer', type=str, default='adam', help="optimizer adam|sgd")
-parser.add_argument('--logname', type=str, default='', help='logname')
+cfname = sys.argv[1]
+with open("configs/" + cfname) as f:
+    config = yaml.safe_load(f)
 
-opt = parser.parse_args()
-print(opt)
+pprint(config)
+config["manualSeed"] = random.randint(1, 10000)
+print(config["manualSeed"])
+random.seed(config["manualSeed"])
 
-opt.manualSeed = random.randint(1, 10000)
-print(opt.manualSeed)
-random.seed(opt.manualSeed)
-
-if opt.dataset_type == 'shapenet':
+if config["dataset"]["type"] == 'shapenet':
     train_dataset = ShapeNetDataset(
-        root=opt.dataset,
+        root=config["dataset"]["path"],
         classification=True,
-        npoints=opt.num_points)
-
+        npoints=config["dataset"]["num_points"])
     test_dataset = ShapeNetDataset(
-        root=opt.dataset,
+        root=["dataset"]["path"],
         classification=True,
         split='test',
-        npoints=opt.num_points,
+        npoints=config["dataset"]["num_points"],
         data_augmentation=False)
-elif opt.dataset_type == 'modelnet40':
-    # train_dataset = ModelNet40(
-    #     num_points = opt.num_points,
-    #     partition='train')
-
-    # test_dataset = ModelNet40(
-    #     partition='test', num_points = opt.num_points)
-    train_dataset = ModelNet40(root=opt.dataset, npoints=opt.num_points, split="train", data_augmentation=True)
-    test_dataset = ModelNet40(root=opt.dataset, npoints=opt.num_points, split="test", data_augmentation=False)
-
+elif config["dataset"]["type"] == 'modelnet40':
+    train_dataset = ModelNet40(
+        root=config["dataset"]["path"],
+        npoints=config["dataset"]["num_points"],
+        split="train", 
+        data_augmentation=True)
+    test_dataset = ModelNet40(root=config["dataset"]["path"],
+        npoints=config["dataset"]["num_points"],
+        split="test",
+        data_augmentation=False)
 else:
     exit('wrong dataset type')
 
 train_loader = torch.utils.data.DataLoader(
     train_dataset,
-    batch_size=opt.batchSize,
+    batch_size=config["train"]["batch_size"],
     shuffle=True,
-    num_workers=int(opt.workers))
+    num_workers=config["train"]["workers"])
 
 test_loader = torch.utils.data.DataLoader(
     test_dataset,
-    batch_size=opt.batchSize,
+    batch_size=config["train"]["batch_size"],
     shuffle=True,
-    num_workers=int(opt.workers))
+    num_workers=config["train"]["workers"])
 
 print(len(train_dataset), len(test_dataset))
-# num_classes = len(train_dataset.classes)
-# print('classes', num_classes)
 
 try:
-    os.makedirs("models/"+opt.outf)
+    os.makedirs("models/"+config["experiment_name"])
 except OSError:
     pass
 
-if opt.model_type == "PointTransformer":
-    classifier = PointTransformer(num_heads=1, d_qk=64, d_v=64)
-elif opt.model_type == "PCT":
-    classifier = PCT()
+if config["model"]["type"] == "PointTransformer":
+    classifier = PointTransformer2(config, num_heads=1, d_qk=64, d_v=64)
+elif config["model"]["type"] == "PCT":
+    classifier = PCT(config)
 else:
-    print("Bad input")
+    print("Bad Model")
     exit()
 
-if opt.model != '':
-    classifier.load_state_dict(torch.load(opt.model))
+if config["model"]["pretrained"] != None:
+    classifier.load_state_dict(torch.load(config["model"]["pretrained"]))
 
-if opt.optimizer == "adam":
-    optimizer = optim.Adam(classifier.parameters(), lr=0.001, betas=(0.9, 0.999))
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
-elif opt.optimizer == "sgd":
-    optimizer = optim.SGD(classifier.parameters(), lr=0.01, momentum=0.9, weight_decay=5e-4)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, opt.nepoch, eta_min=0.01)
+if config["optimizer"]["type"] == "Adam":
+    optimizer = optim.Adam(classifier.parameters(), lr=config["optimizer"]["lr"], betas=config["optimizer"]["betas"])
+elif config["optimizer"]["type"] == "SGD":
+    optimizer = optim.SGD(classifier.parameters(), lr=config["optimizer"]["lr"], momentum=config["optimizer"]["momentum"], weight_decay=float(config["optimizer"]["weight_decay"]))
+
+
+if config["scheduler"]["type"] == "CosineAnnealingLR":
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, config["train"]["epochs"], eta_min=config["scheduler"]["eta_min"])
+elif config["scheduler"]["type"] == "StepLR":
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=config["scheduler"]["step_size"], gamma=config["scheduler"]["gamma"])
+else:
+    print("Bad Optimizer")
+    exit()
 
 criterion = nn.CrossEntropyLoss()
 classifier.cuda()
 
 
-num_batch = len(train_dataset) / opt.batchSize
+num_batch = len(train_dataset) / config["train"]["batch_size"]
 
-fadksfadfad = open("logs/log-%s.txt" %opt.logname, 'w')
-fadksfadfad.close()
+if config["save_data"]["save_log"]:
+    lfile = open("logs/log-%s.txt" % config["experiment_name"], 'w')
+    lfile.close()
 
-with open("logs/log-%s.txt" %opt.logname, 'a') as f:
-    f.write(str(opt))
-    f.write('\n')
-    f.write(str(classifier))
-    f.write('\n')
-    f.write('\n')
+    with open("logs/log-%s.txt" % config["experiment_name"], 'a') as f:
+        f.write(str(config))
+        f.write('\n')
+        f.write(str(classifier))
+        f.write('\n')
+        f.write('\n')
 
-for epoch in range(opt.nepoch):
-    
+for epoch in range(config["train"]["epochs"]):
     epoch_train_accuracy = 0
     epoch_train_loss = 0
     counter = 0
@@ -133,27 +125,16 @@ for epoch in range(opt.nepoch):
         optimizer.step()
         pred_choice = pred.data.max(1)[1]
         correct = pred_choice.eq(target.data).cpu().sum()
-        print('[%d: %d/%d] train loss: %f accuracy: %f' % (epoch, i, num_batch, loss.item(), correct.item() / float(opt.batchSize)))
+        print('[%d: %d/%d] train loss: %f accuracy: %f' % (epoch, i, num_batch, loss.item(), correct.item() / float(config["train"]["batch_size"])))
         
-        with open("logs/log-%s.txt" %opt.logname, 'a') as f:
-            f.write('[%d: %d/%d] train loss: %f accuracy: %f\n' % (epoch, i, num_batch, loss.item(), correct.item() / float(opt.batchSize)))
+        if config["save_data"]["save_log"]:
+            with open("logs/log-%s.txt" % config["experiment_name"], 'a') as f:
+                f.write('[%d: %d/%d] train loss: %f accuracy: %f\n' % (epoch, i, num_batch, loss.item(), correct.item() / float(config["train"]["batch_size"])))
 
         epoch_train_loss += loss.item()
         epoch_train_accuracy += correct.item()
         counter += 1
-        # if i % 10 == 0:
-        #     j, data = next(enumerate(test_loader, 0))
-        #     points, target = data
-        #     target = target[:, 0]
-        #     points, target = points.cuda(), target.cuda()
-        #     classifier = classifier.eval()
-        #     pred = classifier(points)
-        #     loss = F.nll_loss(pred, target)
-        #     pred_choice = pred.data.max(1)[1]
-        #     correct = pred_choice.eq(target.data).cpu().sum()
-        #     print('[%d: %d/%d] %s loss: %f accuracy: %f' % (epoch, i, num_batch, 'test', loss.item(), correct.item()/float(opt.batchSize)))
-        #     with open("log-%s.txt" %opt.dataset_type, 'a') as f:
-        #         f.write('[%d: %d/%d] %s loss: %f accuracy: %f\n' % (epoch, i, num_batch, 'test', loss.item(), correct.item()/float(opt.batchSize)))
+
     epoch_test_accuracy = 0
     epoch_test_loss = 0
     tcounter = 0
@@ -170,26 +151,29 @@ for epoch in range(opt.nepoch):
         epoch_test_accuracy += correct.item()
         tcounter += 1
 
-    epoch_test_accuracy = epoch_test_accuracy / (tcounter * float(opt.batchSize))
+    epoch_test_accuracy = epoch_test_accuracy / (tcounter * float(config["train"]["batch_size"]))
     epoch_test_loss = epoch_test_loss / tcounter
 
     print("-" * 40)
     print("EPOCH %d stats" % epoch)
     print('[%d] %s loss: %f accuracy: %f' % (epoch, 'test', epoch_test_loss, epoch_test_accuracy))
-    with open("logs/log-%s.txt" %opt.logname, 'a') as f:
-        f.write("-" * 40 + "\n")
-        f.write('[%d] %s loss: %f accuracy: %f\n' % (epoch, 'test', epoch_test_loss, epoch_test_accuracy))
+    if config["save_data"]["save_log"]:
+        with open("logs/log-%s.txt" % config["experiment_name"], 'a') as f:
+            f.write("-" * 40 + "\n")
+            f.write('[%d] %s loss: %f accuracy: %f\n' % (epoch, 'test', epoch_test_loss, epoch_test_accuracy))
     
     epoch_train_loss = epoch_train_loss / counter
-    epoch_train_accuracy = epoch_train_accuracy / (counter * float(opt.batchSize))
+    epoch_train_accuracy = epoch_train_accuracy / (counter * float(config["train"]["batch_size"]))
     print('[%d] %s loss: %f accuracy: %f' % (epoch, 'train', epoch_train_loss, epoch_train_accuracy))
-    with open("logs/log-%s.txt" %opt.logname, 'a') as f:
-        f.write('[%d] %s loss: %f accuracy: %f\n' % (epoch, 'train', epoch_train_loss, epoch_train_accuracy))
-        f.write("-" * 40 + "\n")
+    if config["save_data"]["save_log"]:    
+        with open("logs/log-%s.txt" % config["experiment_name"], 'a') as f:
+            f.write('[%d] %s loss: %f accuracy: %f\n' % (epoch, 'train', epoch_train_loss, epoch_train_accuracy))
+            f.write("-" * 40 + "\n")
     print("-" * 40)
 
     scheduler.step()
-    torch.save(classifier.state_dict(), 'models/%s/cls_model_%d.pth' % (opt.outf, epoch))
+    if config["save_data"]["save_model"]:
+        torch.save(classifier.state_dict(), 'models/%s/cls_model_%d.pth' % (config["experiment_name"], epoch))
 
 total_correct = 0
 total_testset = 0
@@ -205,5 +189,6 @@ for i,data in tqdm(enumerate(test_loader, 0)):
     total_testset += points.size()[0]
 
 print("final accuracy {}".format(total_correct / float(total_testset)))
-with open("logs/log-%s.txt" %opt.logname, 'a') as f:
-    f.write("final accuracy {}\n".format(total_correct / float(total_testset)))
+if config["save_data"]["save_log"]:
+    with open("logs/log-%s.txt" %config["experiment_name"], 'a') as f:
+        f.write("final accuracy {}\n".format(total_correct / float(total_testset)))

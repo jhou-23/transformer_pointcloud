@@ -232,8 +232,5 @@ class ShapeNetDataset(Dataset):
 
 
 if __name__ == '__main__':
-    train = ModelNet40(1024)
-    test = ModelNet40(1024, 'test')
-    for data, label in train:
-        print(data.shape)
-        print(label.shape)
+    train = ModelNet40('modelnet40')
+    print(train[0])

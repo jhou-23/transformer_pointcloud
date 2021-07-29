@@ -1,0 +1,25 @@
+# this is a test yaml
+experiment_name: transformer-128embed-posenc-1head
+dataset:
+  type: modelnet40
+  path: modelnet40
+  num_points: 1024
+model:
+  type: PointTransformer # PCT or PointTransformer
+  pretrained: # leave blank if none; directory otherwise
+optimizer:
+  type: Adam # SGD or Adam
+  lr: 0.001
+  betas: [0.9, 0.999]
+scheduler:
+  type: StepLR
+  step_size: 20
+  gamma: 0.5
+train:
+  epochs: 250
+  batch_size: 32
+  workers: 8
+save_data:
+  save_log: True
+  save_model: True
+

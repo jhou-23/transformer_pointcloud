@@ -1,0 +1,38 @@
+# this is a test yaml
+experiment_name: test
+dataset:
+  type: modelnet40
+  path: modelnet40
+  num_points: 1024
+model:
+  type: PCT # PCT or PointTransformer
+  pretrained: # leave blank if none; directory otherwise
+  components:
+    input_embedding: 
+      included: True
+      d_model: 128
+    num_layers: 4
+    dropout_p: 0.5
+    attention:
+      shared_weights: False
+      offset: false
+      d_qk: 32
+      d_v: 128
+      scale: l1
+    concat: True
+    pool: max
+optimizer:
+  type: SGD # SGD or Adam
+  lr: 0.01
+  momentum: 0.9
+  weight_decay: 5e-4
+scheduler:
+  type: CosineAnnealingLR
+  eta_min: 0.01
+train:
+  epochs: 250
+  batch_size: 32
+  workers: 8
+save_data:
+  save_log: False
+  save_model: False
