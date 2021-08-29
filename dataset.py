@@ -5,6 +5,8 @@ import numpy as np
 from torch.utils.data import Dataset
 import json
 import torch
+from pointnet_util import farthest_point_sample, pc_normalize
+# torch.multiprocessing.set_start_method('spawn')
 
 def download():
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -77,12 +79,14 @@ def jitter_pointcloud(pointcloud, sigma=0.01, clip=0.02):
 #     def __len__(self):
 #         return self.data.shape[0]
 
-class ModelNet40(Dataset):
-    def __init__(self, root, npoints=2500, split='train', data_augmentation=True):
+class ModelNet40Old(Dataset):
+    def __init__(self, root, bins, npoints=2500, split='train', data_augmentation=True, rasterize=False, cache_limit=2000):
+        self.rasterize = rasterize
         self.npoints = npoints
         self.root = root
         self.split = split
         self.data_augmentation = data_augmentation
+        self.bins = bins
 
         fi = open(os.path.join(os.path.dirname(os.path.realpath(__file__)), '%s_files.json' %split), 'r')
         self.fns = list(json.load(fi))
@@ -92,35 +96,41 @@ class ModelNet40(Dataset):
             for line in f:
                 ls = line.strip().split()
                 self.cat[ls[0]] = int(ls[1])
-
+        
         self.classes = list(self.cat.keys())
+
+        self.cache_limit = cache_limit
+        self.cache = {}
         
     def __getitem__(self, index):
-        fn = self.fns[index]
-        cls = self.cat[fn.split('/')[0]]
-        x, y, z = self.readOFF(fn)
-        pts = np.vstack([x, y, z]).T
+        if index in self.cache:
+            pts, cl = self.cach[index]
+        else:
+            fn = self.fns[index]
+            cl = self.cat[fn.split('/')[0]]
+            x, y, z = self.readOFF(fn)
+            pts = np.vstack([x, y, z]).T
+            if len(self.cache) < self.cache_limit:
+                self.cache[index] = (pts, cl)
+        
         choice = np.random.choice(len(pts), self.npoints, replace=True)
         point_set = pts[choice, :]
 
         point_set = point_set - np.expand_dims(np.mean(point_set, axis=0), 0) 
         dist = np.max(np.sqrt(np.sum(point_set ** 2, axis=1)), 0)
-        point_set = point_set / dist  
+        point_set = point_set / dist
 
-        if self.data_augmentation:
-            # theta = np.random.uniform(0, np.pi * 2)
-            # rotation_matrix = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
-            # point_set[:, [0, 2]] = point_set[:, [0, 2]].dot(rotation_matrix)
-            # point_set += np.random.normal(0, 0.02, size=point_set.shape)
-
+        if self.data_augmentation and self.split=="train":
             point_set = random_point_dropout(point_set) 
             point_set = translate_pointcloud(point_set)
             np.random.shuffle(point_set)
+        
 
+        self.point_set = torch.from_numpy(point_set.astype(np.float32))
+        cl = torch.from_numpy(np.array([cl]).astype(np.int64))
+        self.point_set, discretized = self.discretize(self.bins)
 
-        point_set = torch.from_numpy(point_set.astype(np.float32))
-        cls = torch.from_numpy(np.array([cls]).astype(np.int64))
-        return point_set, cls
+        return self.point_set, discretized, cl
 
     def readOFF(self, fname):
         x = []
@@ -139,8 +149,119 @@ class ModelNet40(Dataset):
         
         return x, y, z
 
+    def discretize(self, bins):
+        bins -= 1
+        # create nx3 matrix of offsets that move points to furthest x,y,zs to 0,0,0
+        offset = (torch.Tensor([torch.min(self.point_set[:,0]), torch.min(self.point_set[:,1]), torch.min(self.point_set[:,2])]).repeat(self.npoints,1))
+        discretized = (self.point_set - offset)
+        # scale matrix which finds largest in each direction and scales based of of bins
+        scale = (float(bins) / torch.max(discretized))
+        if scale.isnan() or scale.isinf():
+            scale = (torch.Tensor(bins)[0])
+
+        # discretized = discretized.mul(scale) # hadamard's product
+        discretized *= scale
+        discretized = torch.round(discretized) # round all elements
+
+        if self.rasterize:
+            point_list = []
+
+            for i in range(len(self.point_set)):
+                point_list.append((self.point_set[i, :], discretized[i, :]))
+            # sort to raster order
+            point_list = sorted(point_list, key=lambda x: [x[1][2], x[1][1], x[1][0]], reverse=False)
+            discretized = []
+            pc = []
+
+            for point, discrete_point in point_list:
+                pc.append(point.tolist())
+                discretized.append(discrete_point.tolist())
+
+            pc = torch.Tensor(pc).cuda()
+            discretized = torch.Tensor(discretized)
+        else:
+            pc = self.point_set
+
+        return pc, discretized
+    
+    def fps(self):
+        """
+        Input:
+            xyz: pointcloud data, [B, N, 3]
+            npoint: number of samples
+        Return:
+            centroids: sampled pointcloud index, [B, npoint]
+        """
+        device = xyz.device
+        B, N, C = xyz.shape
+        centroids = torch.zeros(B, self.npoints, dtype=torch.long).to(device)
+        distance = torch.ones(B, N).to(device) * 1e10
+        farthest = torch.randint(0, N, (B,), dtype=torch.long).to(device)
+        batch_indices = torch.arange(B, dtype=torch.long).to(device)
+        for i in range(self.npoints):
+            centroids[:, i] = farthest
+            centroid = xyz[batch_indices, farthest, :].view(B, 1, 3)
+            dist = torch.sum((xyz - centroid) ** 2, -1)
+            distance = torch.min(distance, dist)
+            farthest = torch.max(distance, -1)[1]
+        return centroids
+
     def __len__(self):
         return len(self.fns)
+
+class ModelNet40(Dataset):
+    def __init__(self, root, npoint=1024, split='train', uniform=False, normal_channel=True, cache_size=15000):
+        self.root = root
+        self.npoints = npoint
+        self.uniform = uniform
+        self.catfile = os.path.join(self.root, 'modelnet40_shape_names.txt')
+
+        self.cat = [line.rstrip() for line in open(self.catfile)]
+        self.classes = dict(zip(self.cat, range(len(self.cat))))
+        self.normal_channel = normal_channel
+
+        shape_ids = {}
+        shape_ids['train'] = [line.rstrip() for line in open(os.path.join(self.root, 'modelnet40_train.txt'))]
+        shape_ids['test'] = [line.rstrip() for line in open(os.path.join(self.root, 'modelnet40_test.txt'))]
+
+        assert (split == 'train' or split == 'test')
+        shape_names = ['_'.join(x.split('_')[0:-1]) for x in shape_ids[split]]
+        # list of (shape_name, shape_txt_file_path) tuple
+        self.datapath = [(shape_names[i], os.path.join(self.root, shape_names[i], shape_ids[split][i]) + '.txt') for i
+                         in range(len(shape_ids[split]))]
+        print('The size of %s data is %d'%(split,len(self.datapath)))
+
+        self.cache_size = cache_size  # how many data points to cache in memory
+        self.cache = {}  # from index to (point_set, cls) tuple
+
+    def __len__(self):
+        return len(self.datapath)
+
+    def _get_item(self, index):
+        if index in self.cache:
+            point_set, cls = self.cache[index]
+        else:
+            fn = self.datapath[index]
+            cls = self.classes[self.datapath[index][0]]
+            cls = np.array([cls]).astype(np.int32)
+            point_set = np.loadtxt(fn[1], delimiter=',').astype(np.float32)
+            if self.uniform:
+                point_set = farthest_point_sample(point_set, self.npoints)
+            else:
+                point_set = point_set[0:self.npoints,:]
+
+            point_set[:, 0:3] = pc_normalize(point_set[:, 0:3])
+
+            if not self.normal_channel:
+                point_set = point_set[:, 0:3]
+
+            if len(self.cache) < self.cache_size:
+                self.cache[index] = (point_set, cls)
+
+        return point_set, cls
+
+    def __getitem__(self, index):
+        return self._get_item(index)
 
 class ShapeNetDataset(Dataset):
     def __init__(self,
@@ -209,6 +330,7 @@ class ShapeNetDataset(Dataset):
         point_set = point_set - np.expand_dims(np.mean(point_set, axis = 0), 0) # center
         dist = np.max(np.sqrt(np.sum(point_set ** 2, axis = 1)),0)
         point_set = point_set / dist #scale
+        print(max(point_set))
 
         if self.data_augmentation:
             theta = np.random.uniform(0,np.pi*2)
@@ -233,4 +355,4 @@ class ShapeNetDataset(Dataset):
 
 if __name__ == '__main__':
     train = ModelNet40('modelnet40')
-    print(train[0])
+    pc = train[1024][0]

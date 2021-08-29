@@ -1,22 +1,35 @@
-import os
-import json
+import random
+from pprint import pprint
+from dataset import ModelNet40
+import numpy as np
+import torch
+import math
 
-fi = open(os.path.join(os.path.dirname(os.path.realpath(__file__)), '%s_files.json' %'test'), 'r')
-fns = list(json.load(fi))
-fi.close()
+def pairwise_distances(x):
+    '''
+    Input: x is a Nxd matrix
+           y is an optional Mxd matirx
+    Output: dist is a NxM matrix where dist[i,j] is the square norm between x[i,:] and y[j,:]
+            if y is not given then use 'y=x'.
+    i.e. dist[i,j] = ||x[i,:]-y[j,:]||^2
+    '''
+    x_norm = (x**2).sum(2).unsqueeze(2)
+    y_t = torch.transpose(x, 1, 2)
+    y_norm = x_norm.permute(0,2,1)
+    
+    dist = x_norm + y_norm - 2.0 * torch.bmm(x, y_t)
+    return torch.clamp(dist, 0.0, np.inf) ** 0.5
 
-for fname in fns:
-    p = os.path.join("modelnet40", fname)
-    f = open(p, 'r')
-    lines = []
-    for line in f:
-        lines.append(line)
-    f.close()
-    if lines[0] != "OFF\n":
-        meta = lines[0][3:]
-        lines[0] = "OFF\n"
-        lines.insert(1, meta)
-        f = open(p, 'w')
-        for line in lines:
-            f.write(line)
-        f.close()
+
+pc = torch.randn((2, 4, 3)).cuda() 
+print(pc)
+sigma = torch.randint(1,100,(2, 4, 4)).type(torch.FloatTensor).cuda()
+print(sigma)
+dc = -1 / (2 * (sigma**2)).cuda()
+cc = 1 / ((2 * math.pi * sigma) ** 0.5).cuda()
+
+dists = pairwise_distances(pc).cuda()
+print(dists)
+
+pe = cc * torch.exp(dc * dists)
+print(pe)

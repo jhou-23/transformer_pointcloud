@@ -13,12 +13,15 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--logname", type=int, required=True)
+parser.add_argument("--logname", type=str, required=True)
 parser.add_argument("--ftype", type=str, required=True, help="old | new")
 parser.add_argument("--plot", type=str2bool, required=True)
 opt = parser.parse_args()
 
-f = open("log-" + opt.logname + ".txt", 'r')
+if opt.ftype=="old":
+    f = open("log-" + opt.logname + ".txt", 'r')
+else:
+    f = open("logs/log-" + opt.logname + ".txt", 'r')
 
 train_i = []
 test_i = []
@@ -32,6 +35,7 @@ test_loss = []
 sample = 1
 train_counter = 0
 test_counter = 0
+foundTest = 0
 for line in f:
     line.strip().strip()
     if opt.ftype == "old":
@@ -63,35 +67,22 @@ for line in f:
                 test_loss.append(data[1])
                 test_acc.append(data[2])
     else:
-        # if "train" in line:
-        #     if train_counter % sample == 0:
-        #         data = line.split(": ")
-        #         data[0] = int(data[0][1:])
-        #         num, den = data[1][:-12].split("/")
-        #         num, den = float(num), float(den)
-        #         data[1] = num / den
-        #         data[2] = float(data[2][:-9])
-        #         data[3] = float(data[3][:-1])
-        #         data[0] += data.pop(1)
-        #         train_i.append(data[0])
-        #         train_loss.append(data[1])
-        #         train_acc.append(data[2])
-        #     train_counter += 1
-        # elif "test" in line:
-        #     if test_counter % sample == 0:
-        #         data = line.split(": ")
-        #         data[0] = int(data[0][1:])
-        #         num, den = data[1][:-11].split("/")
-        #         num, den = float(num), float(den)
-        #         data[1] = num / den
-        #         data[2] = float(data[2][:-9])
-        #         data[3] = float(data[3][:-1])
-        #         data[0] += data.pop(1)
-        #         test_i.append(data[0])
-        #         test_loss.append(data[1])
-        #         test_acc.append(data[2])
-        print("Not done")
-        exit()
+        if "test" in line:
+            data = line.split(" ")
+            test_i.append(int(data[0][1:-1]))
+            test_loss.append(float(data[3]))
+            test_acc.append(float(data[-1]))
+            foundTest = 1
+        elif foundTest == 3:
+            data = line.split(" ")
+            train_i.append(int(data[0][1:-1]))
+            train_loss.append(float(data[3]))
+            train_acc.append(float(data[-1]))
+            foundTest = 0
+        elif foundTest == 2 or foundTest == 1:
+            foundTest += 1
+
+
 f.close()
 
 

@@ -1,9 +1,10 @@
 # this is a test yaml
-experiment_name: npct-sinusoidal-4qk4v-4emb.txt
+experiment_name: pct-ape64
 dataset:
   type: modelnet40
-  path: modelnet40
+  path: modelnet40_normal_resampled
   num_points: 1024
+  bins: 64
 model:
   type: PCT # PCT or PointTransformer
   pretrained: # leave blank if none; directory otherwise
@@ -12,30 +13,32 @@ model:
     dropout_p: 0.5
     input_embedding: 
       included: True
-      d_model: 4
-      pos_enc: sinusoidal
-      k: 16
+      d_model: 256
+      pos_enc: ape
+      neighbor: True
     attention:
-      shared_weights: False
-      offset: False
-      d_qk: 4
-      d_v: 4
-      scale: root
+      shared_weights: True
+      offset: True
+      d_qk: 64
+      d_v: 256
+      scale: l1
       num_heads: 1
     concat: True # always check
     pool: max
 optimizer:
-  type: SGD # SGD or Adam
-  lr: 0.01
-  momentum: 0.9
-  weight_decay: 5e-4
+  type: Adam # SGD or Adam
+  lr: 1e-04
+  betas: [0.9, 0.999]
+  eps: 1e-08
+  weight_decay: 1e-04
 scheduler:
-  type: CosineAnnealingLR
-  eta_min: 0.01
+  type: StepLR
+  step_size: 50
+  gamma: 0.3
 train:
-  epochs: 250
-  batch_size: 32
-  workers: 8
+  epochs: 200
+  batch_size: 16
+  workers: 4
 save_data:
   save_log: True
   save_model: True

@@ -1,5 +1,4 @@
-# this is a test yaml
-experiment_name: transformer-128embed-posenc-1head
+experiment_name: transformer
 dataset:
   type: modelnet40
   path: modelnet40
@@ -7,19 +6,37 @@ dataset:
 model:
   type: PointTransformer # PCT or PointTransformer
   pretrained: # leave blank if none; directory otherwise
+  components:
+    num_layers: 6
+    dropout_p: 0.2
+    input_embedding: 
+      included: True
+      d_model: 128
+      pos_enc: sinusoidal
+    num_heads: 4
+    ffn_hidden: 2048
+# optimizer:
+#   type: Adam # SGD or Adam
+#   lr: 0.1
+#   eps: 0.000000005
+#   betas: [0.9, 0.999]
+#   weight_decay: 0.0005
+# scheduler:
+#   type: ReduceLROnPlateau
+#   factor: 0.9
+#   patience: 10
 optimizer:
-  type: Adam # SGD or Adam
-  lr: 0.001
-  betas: [0.9, 0.999]
+  type: SGD # SGD or Adam
+  lr: 0.01
+  momentum: 0.9
+  weight_decay: 5e-4
 scheduler:
-  type: StepLR
-  step_size: 20
-  gamma: 0.5
+  type: CosineAnnealingLR
+  eta_min: 0.01
 train:
-  epochs: 250
+  epochs: 1000
   batch_size: 32
   workers: 8
 save_data:
   save_log: True
   save_model: True
-

@@ -4,6 +4,7 @@ dataset:
   type: modelnet40
   path: modelnet40
   num_points: 1024
+  bins: 16
 model:
   type: PCT # PCT or PointTransformer
   pretrained: # leave blank if none; directory otherwise
@@ -14,8 +15,8 @@ model:
     num_layers: 4
     dropout_p: 0.5
     attention:
-      shared_weights: False
-      offset: False
+      shared_weights: True
+      offset: True
       d_qk: 32
       d_v: 128
       scale: l1

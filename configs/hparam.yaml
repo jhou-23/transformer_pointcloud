@@ -1,47 +1,42 @@
 # this is a test yaml
-experiment_name: test
+experiment_name: npct-sgrpe
 dataset:
   type: modelnet40
   path: modelnet40
   num_points: 1024
+  bins: 16
 model:
   type: PCT # PCT or PointTransformer
   pretrained: # leave blank if none; directory otherwise
   components:
+    num_layers: 4
+    dropout_p: 0.5
     input_embedding: 
       included: True
       d_model: 128
-      pos_enc: sinusoidal
-    num_layers: 4
-    dropout_p: 0.5
+      pos_enc: sgrpe
+      sigma: 1
     attention:
       shared_weights: False
-      offset: false
+      offset: False
       d_qk: 32
       d_v: 128
-      scale: l1
-    concat: True
+      scale: root
+      num_heads: 1
+    concat: True # always check
     pool: max
-# optimizer:
-#   type: SGD # SGD or Adam
-#   lr: 0.01
-#   momentum: 0.9
-#   weight_decay: 5e-4
-# scheduler:
-#   type: CosineAnnealingLR
-#   eta_min: 0.01
 optimizer:
   type: SGD # SGD or Adam
   lr: 0.01
-  momentum: 0.9
-  weight_decay: 5e-4
+  eps: 1e-08
+  weight_decay: 1e-4
 scheduler:
   type: CosineAnnealingLR
   eta_min: 0.01
 train:
-  epochs: 1
+  epochs: 100
   batch_size: 32
   workers: 8
 save_data:
-  save_log: False
-  save_model: False
+  save_log: True
+  save_model: True
